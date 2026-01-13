@@ -9,8 +9,8 @@ number:
 date:
 consensus: true
 v: 3
-area: AREA
-workgroup: WG Working Group
+area: "Applications and Real-Time"
+workgroup: "More Instant Messaging Interoperability"
 keyword:
  - preauthorization
  - credential
@@ -20,12 +20,12 @@ keyword:
  - ASN.1
  - DER
 venue:
-  group: WG
-  type: Working Group
-  mail: WG@example.com
-  arch: https://example.com/WG
-  github: USER/REPO
-  latest: https://example.com/LATEST
+  group: "More Instant Messaging Interoperability"
+  type: "Working Group"
+  mail: "mimi@ietf.org"
+  arch: "https://mailarchive.ietf.org/arch/browse/mimi/"
+  github: "rohanmahy/mimi-credential-preauth"
+  latest: "https://rohanmahy.github.io/mimi-credential-preauth/draft-mahy-mimi-credential-preauth.html"
 
 author:
  -
