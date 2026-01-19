@@ -40,15 +40,17 @@ informative:
 
 --- abstract
 
-TODO Abstract
-
+This document describes a syntax called claim pointers that facilitates comparisons in structured credentials, which often have nested levels of hierarchy.
+It also describes an new version of the More Instant Messaging Interoperability (MIMI) preauthorization format using claim pointers.
 
 --- middle
 
 # Introduction
 
-TODO Introduction
-
+More Instant Messaging Interoperability (MIMI) room policy ({{!I-D.ietf-mimi-room-policy}}) defines a format that allows potential joiners that are not enumerated beforehand to be preauthorized based on properties found in their Messaging Layer Security (MLS) {{!RFC9420}} credentials.
+The current version of the preauthorization format in {{Section 4 of !I-D.ietf-mimi-room-policy}} is underspecified and was designed to work with individual claims in a JSON Web Token (JWT) {{!RFC7519}} or CBOR Web Token (CWT) {{!RFC8392}}.
+This document describes a syntax called claim pointers that can address claims nested inside JWT, CWT, and X.509 certificates {{!RFC5280}}, and provides richer matching rules for parts of those claims and predicates based on them.
+It could also be extended to credentials based on most general purpose structured data formats.
 
 # Conventions and Definitions
 
@@ -62,31 +64,24 @@ The names for record and fields differ across formats, as do their specific repr
 
 | Format | Representation of record | Identifier of field | Name of field |
 |----
-| CSV | line | position | field |
-| TOML | group | name | entry? |
-| SQL | row | column name | column/field |
 | JSON | object (preferred) | name (quoted string) | value |
 | JSON | array  | position | value |
-| CBOR | map (slight preference) | (map) key (often integer) | value |
+| CBOR | map (slight preference) | map key (often an integer) | value |
 | CBOR | array  | position | element |
 | ASN.1 | sequence | position or OID | element |
-| ProtoBuf | struct or record? | field identifier? | ?? |
+| TLS PL | struct | field name | value |
+| TLS PL | vector (not used for records) | position | value |
+| ProtoBuf | struct or record? | integer field identifier | ?? |
 | msgpack | | | |
 | XML | element | XMLPath or id attribute | contents of element |
 | XML | attribute | XMLPath | value of attribute |
+| CSV | line | position | field |
+| TOML | group | name | entry? |
+| SQL | row | column name | column/field |
 | YANG | | | |
-| TLS PL | struct | field name | value |
 
-In this document, we are primarily interested in structured formats commonly used in credentials, specifically JSON Web Tokens (JWT), CBOR Web Tokens (CWT), and X.509 certificates (ASN.1) and their derivatives.
+In this document, we are primarily interested in structured formats commonly used in credentials, specifically JSON Web Tokens (JWT), CBOR Web Tokens (CWT), and X.509 certificates (which use ASN.1) and their derivatives.
 In the context of credentials each of these specific fields is often described as a claim.
-
-In X.509v3, a certificate contains an ASN.1 `SEQUENCE` of exactly 3 elements, the `tbsCertificate` ("to be signed certificate", which is analogous to the certificate payload), the signature algorithm, and the signature.
-The certificate "payload" record is an ASN.1 `SEQUENCE` of 6 mandatory elements (certificate serial number, signature algorithm, issuer, validity, subject, and subject public key) and up to four optional elements (version, issuer unique ID, subject unique ID, and extensions).
-For the purpose of matching elements in the sequence we will assign an index to each field (starting from 0) as if all 10 elements were present.
-In this way, the overall structure is addressed by absolute position, while specific names, types, and extensions are identified using registered Object Identifiers (OIDs).
-The extensions field contains a further syntax with a potentially large and varied basket of data structures.
-Lists of items are represented as an ASN.1 `SEQUENCE OF` type, which if always of a single basic or composite type.
-A composite type can contain a `CHOICE` of multiple subtypes.
 
 In JSON, a record is represented as an object by convention. The individual fields in the record are identified by the object name, which is always a quoted string.
 Very rarely a record is represented as an array of heterogeneous elements.
@@ -97,8 +92,16 @@ In CBOR a record is typically represented as a map (very often with assigned int
 Records could also be represented as an array of heterogeneous elements.
 Lists of homogenous elements are also arrays.
 
-As in ASN.1, records and lists in JWT and CWT can be nested, sometimes deeply.
-For example, the subjectAltName field can contain a list of different types of names (DNS, URI, email, etc.) that all represent the subject.
+In X.509v3, a certificate contains an ASN.1 `SEQUENCE` of exactly 3 elements, the `tbsCertificate` ("to be signed certificate", which is analogous to the certificate payload), the signature algorithm, and the signature.
+The certificate "payload" record is an ASN.1 `SEQUENCE` of 6 mandatory elements (certificate serial number, signature algorithm, issuer, validity, subject, and subject public key) and up to four optional elements (version, issuer unique ID, subject unique ID, and extensions).
+For the purpose of matching elements in the sequence we will assign an index to each field (starting from 0) as if all 10 elements were present.
+In this way, the overall structure is addressed by absolute position, while specific names, types, and extensions are identified using registered Object Identifiers (OIDs).
+The extensions field contains a further syntax with a potentially large and varied basket of data structures.
+Lists of items are represented as an ASN.1 `SEQUENCE OF` type, which if always of a single basic or composite type.
+A composite type can contain a `CHOICE` of multiple subtypes.
+
+Records and lists in JSON, CBOR, and ASN.1 can be nested, sometimes deeply.
+For example, the X.509 subjectAltName field can contain a list of different types of names (DNS, URI, email, etc.) that all represent the subject.
 In JWT or CWT credentials, an address claim might consist of several component claims (ex: country or postal code); a language claim might consist of a list of languages; or a groups claim might contain nested claims only relevant to that specific group.
 
 It is common to have a list of specific permission that have been granted in one context but not another.
@@ -108,7 +111,7 @@ For example a public relations manager might have regular access to resource A b
 
 The following requirements were considered necessary to have a successful credential matching mechanism.
 
-1. The mechanism can detect the difference between no match, and a match with a null or undefined value.
+1. The mechanism can represent the difference between no match, and a match with a null or undefined value.
 
 2. The mechanism can find values in JSON objects and CBOR maps by the object name or key name.
 
@@ -118,35 +121,35 @@ The following requirements were considered necessary to have a successful creden
 
 5. The mechanism can find elements in an ASN.1 `SEQUENCE` that has any combination of its optional elements.
 
-6. The mechanism can find elements in array elements that have a single "identifying" field somewhere in the array value.
+6. The mechanism can find a single element in an list or array where one of the list/array elements contains a single "identifying" field somewhere in the array value.
 
-7. The mechanism can find elements in array elements that require identification by multiple matching claim pointers. - Maybe
+7. The mechanism can find elements in array elements that require identification by multiple matching claim pointers (**Maybe**).
 
-8. The mechanism can find numerical values matching simple numeric predicates, such as great than, or less than or equal to.
+8. The mechanism can find numerical values matching simple numeric predicates, such as greater than, or less than or equal to.
 
 9. The mechanism can find values matching well-defined parts of URIs and email addresses.
 
-10. The mechanism can find values matching arbitrary substrings. - Maybe?
+10. The mechanism can find values matching arbitrary substrings (**Maybe**).
 
 The following requirements were considered and rejected as out of scope.
 
-- Can the mechanism find claim values matching regular expressions? No, since regular expressions often present a security footgun; as we are defined a mechanism expressly to be used with credentials, this is an unacceptable risk.
+- Can the mechanism find claim values matching regular expressions? No, since regular expressions often present a security footgun; as we are defining a mechanism expressly to be used with credentials, this is an unacceptable risk.
 
-- Can the mechanism find claims using combinations of boolean logical statements containing OR statements in a claim pointer? No, as this is likely to allow an unbounded explosion of claim combinations, and an OR mechanism can be introduced at the level of the consuming application.
+- Can the mechanism find claims using arbitrary combinations of boolean logical statements containing OR statements in a claim pointer? No, as this is likely to allow an unbounded explosion of claim combinations, and an OR mechanism can be introduced at the level of the application using the claim pointer mechanism.
 
-- Can the mechanism find claims with information from partial or incomplete nested map keys No, since JSON only supports strings as object names, and CWT does not map keys with maps or arrays. However this might be a straightforward extension.
+- Can the mechanism find claims with information from partial or incomplete nested map keys? No, since JSON only supports strings as object names, and CWT does not map keys with maps or arrays. However, this might be a straightforward extension.
 
-- Can the mechanism find multiple claims with a given query? No, this would imply a mechanism that could return a set of arbitrarily disjoint trees, instead of returning a single result.
+- Can the mechanism find multiple claims with a given query? No, this would imply a mechanism that could return a set of arbitrarily disjoint trees, instead of returning a single result (or no match).
 
 
 # Matching claims
 
 In this section we introduce a method of matching claims in credentials that we describe here as Claim Pointers.
-A claim pointer follows the hierarchy of a credential from its root to a specific claim, through a sequence of specifiers per level. Each level is described using a ClaimPointerUnit object.
+A claim pointer follows the hierarchy of a credential from its root to a specific claim, through a sequence of specifiers per level. Each level is described using a `ClaimPointerUnit` object.
 
-For the purposes of this section, a level is hierarchy in JSON is the value of any object, or an element of an array. In CBOR a level of hierarchy is the value of any map key, an element of an array, or the contents of a tag. In ASN.1 a level of hierarchy is an item of either a `SEQUENCE` or `SEQUENCE OF`.
+For the purposes of this section, a level of hierarchy in JSON is the value of any object, or an element of an array. In CBOR a level of hierarchy is the value of any map key, an element of an array, or the contents of a tag. In ASN.1 a level of hierarchy is an element of either a `SEQUENCE` or `SEQUENCE OF`.
 
-For the explanatory purposes, we will provide an example JWT payload here to demonstrate some of the claim matching options and introduce other examples as needed.
+For explanatory purposes, we will provide an example JWT payload here to demonstrate some of the claim matching options. Additional examples will be introduced as needed.
 
 ~~~ json
 {                                   # contents are at level 1
@@ -174,10 +177,10 @@ For the explanatory purposes, we will provide an example JWT payload here to dem
 
 ## Matching Map Keys, Object Names, and
 
-The value of an object in JSON or a map in CBOR is accessed by its JSON name or CBOR map key, using the `map_key` pointer unit type.
+The value of an object in JSON or the value of a map in CBOR is accessed by its JSON name or CBOR map key, using the `map_key` pointer unit type.
 For JSON the `opaque_key` to be compared with the key is a double-quoted JSON string that matches the object name.
 
-For CBOR the `opaque_key` is the ordinary encoding that matches the map key.
+For CBOR the `opaque_key` is the ordinary encoding {{!I-D.ietf-cbor-serialization}} that matches the map key.
 For example the CBOR map keys of 1 (unsigned integer), -1 (negative integer), '1' (byte string), "1" (text string), 1(0) (a timestamp at the start of the UNIX epoch), and 1.0 (float) match the `opaque_key`s of 0x01, 0x20, 0x41 0x31, 0x61 0x31, 0xC1 0x00, and 0xF9 0x3C 0x00 respectively.
 
 In X.509, a common pattern is to have a `SEQUENCE` of 2 elements consisting of an OID and data element (its "value").
@@ -194,6 +197,14 @@ claim_pointer = [
     opaque_key = "known_entity"
   ]
 ]
+claim_pointer[0].unit_type = map_key; /* 0 */
+claim_pointer[0].opaque_key = "known_entity";
+
+
+/* This feels like nicer names to me */
+pointer_unit[0].unit_type = via_key;
+pointer_unit[0].key.type = string;
+pointer_unit[0].key.value = "known_entity";
 ~~~
 
 
@@ -215,6 +226,14 @@ claim_pointer = [
     index = 2
   ]
 ]
+
+/* claim_pointer[0] points to entire array */
+claim_pointer[0].unit_type = map_key; /* 0 */
+claim_pointer[0].opaque_key = "service_flags";
+
+/* claim_pointer[1] points to 3rd element (true) */
+claim_pointer[1].unit_type = array_position; /* 1 */
+claim_pointer[1].index = 2;
 ~~~
 
 If there is no array, or the array does not have an element at the requested position, the claim pointer does not point at anything.
@@ -579,32 +598,71 @@ enum {
 } ClaimFamily;
 
 enum {
+    number,
+    int,
+    float,
+    bool,
+    date,
     bytes (0),
     string (1),
     domain (2),
     uri (3),
+    https_uri,
+    mimi_uri,
     email (4),
     (255)
 } ClaimSemantics;
 
 enum {
+    exists,
+    number,
+    int,
+    uint,
+    float,
+    finite_float,
+    bool,
+    secs_since_epoch,
+    iso8601,
     bytes (0),
+    hex,
+    base64,
+    base64url,
+    der,
+    pem,
+    ipv4,
+    ipv6,
+    deterministic_cbor,
     utf8 (1),
+    utf8_ci ,
+    nfc,
+    nfd,
+    canonical_json,
     domain (2),
-    user_id (3),
-    device_id (4),
-    handle (5),
+    punycode,
+    email_address,
+    generic_uri,
+    https_uri,
     userpart (6),
     hostpart (7),
     uri_path (8),
+    mimi_uri,
+    user_id (3),
+    device_id (4),
+    room_id (5),
     (255)
 } MatchOn;
 
 enum {
     member_name (0),
-    array_index (1),
+    array_position (1),
+    array_search (2),
+    tagged_value (3), /* CBOR only */
+    bstr_encoded (4), /* CBOR only */
     (255)
-} JwtTokenType;
+} ClaimUnitType;
+
+
+
 
 struct {
     JwtTokenType token_type;
@@ -626,21 +684,120 @@ enum {
     tagged_value (2),
     bstr_encoded (3),
     (255)
-} CwtTokenType;
+} TokenType;
 
 struct {
-    CwtTokenType token_type;
+    TokenType token_type;
     select (token_type) {
         case map_key:
-            opaque key<V>;
+            opaque opaque_key<V>;
         case array_index:
             uint index;
+        case array_search:
+            ClaimMatch nested_matches<V>;
         case tagged_value:
-            struct {}
+            uint tag;
         case bstr_encoded:
-            struct {}
+            struct {};
     }
-} CwtToken;
+} ClaimPointerUnit;
+
+enum {
+    equal (0),
+    less_than (1),
+    less_than_or_equal (2),
+    greater_than (3),
+    greater_than_or_equal (4),
+    len_bytes,
+    len_chars,
+    contains,
+    starts_with,
+    ends_with,
+    substring,
+    path_slice,
+} OperationType;
+
+struct {
+  OperationType operation_type;
+  select (operation_type) {
+    case starts_with:
+        optional<uint> length;
+    case ends_width:
+        optional<uint> length;
+    case substring:
+        uint start_position;
+        uint length;
+    case path_slice:
+        uint path_index;
+  };
+} Operation;
+
+struct {
+    ClaimPointerUnit claim_pointer<V>;
+    ClaimSemantics claim_semantics;
+    MatchOn match_on;
+    optional<Operation> operation;
+    opaque matching_value<V>;
+} ClaimMatch
+
+struct {
+    ClaimFamily claim_family;
+    select (claim_family) {
+        case json:
+            JsonType json_type;
+            select (json_type) {
+                case number:
+                    Double value;
+                case string:
+                case object:
+                case array:
+                    Bytes value;
+                case no_match:
+                case true:
+                case false:
+                case null:
+                    struct {};
+            }
+        case cbor:
+            Bytes cbor_encoding;
+        case asn1:
+    };
+} MapKey
+
+case no_match:
+    struct {};
+case uint:
+case nint:
+    uint64 value;
+case float
+    Double value;
+case array:
+case map:
+case text_string:
+case byte_string:
+    Bytes value;
+case tag:
+    uint64 tag;
+    Bytes value;
+case undefined:
+    select {};
+case simple:
+    uint8 value;
+
+
+enum JsonType {
+    no_match (0),
+    number (1),
+    string (2),
+    object (3),
+    array (4),
+    true (5),
+    false (6),
+    null (7)
+    (255)
+}
+
+
 
 struct {
     CwtToken claim_pointer<V>;
