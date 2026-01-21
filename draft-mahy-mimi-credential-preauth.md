@@ -19,6 +19,8 @@ keyword:
  - X.509
  - ASN.1
  - DER
+ - credential matching
+ - credential comparison
 venue:
   group: "More Instant Messaging Interoperability"
   type: "Working Group"
@@ -40,8 +42,9 @@ informative:
 
 --- abstract
 
-This document describes a syntax called claim pointers that facilitates comparisons in structured credentials, which often have nested levels of hierarchy.
-It also describes an new version of the More Instant Messaging Interoperability (MIMI) preauthorization format using claim pointers.
+This document describes a syntax called claim pointers that identify specific items in structured credentials, which often have nested levels of hierarchy;
+and claim matchers that facilitate comparisons between items in credentials and a target value.
+It also describes a new version of the More Instant Messaging Interoperability (MIMI) preauthorization format using claim pointers and claim matchers.
 
 --- middle
 
@@ -49,7 +52,7 @@ It also describes an new version of the More Instant Messaging Interoperability 
 
 More Instant Messaging Interoperability (MIMI) room policy ({{!I-D.ietf-mimi-room-policy}}) defines a format that allows potential joiners that are not enumerated beforehand to be preauthorized based on properties found in their Messaging Layer Security (MLS) {{!RFC9420}} credentials.
 The current version of the preauthorization format in {{Section 4 of !I-D.ietf-mimi-room-policy}} is underspecified and was designed to work with individual claims in a JSON Web Token (JWT) {{!RFC7519}} or CBOR Web Token (CWT) {{!RFC8392}}.
-This document describes a syntax called claim pointers that can address claims nested inside JWT, CWT, and X.509 certificates {{!RFC5280}}, and provides richer matching rules for parts of those claims and predicates based on them.
+This document describes a syntax called claim pointers that can address claims nested inside JWT, CWT, and X.509 certificates {{!RFC5280}}, and provides richer matching rules called claim matchers, capable of matching sub parts of those claims and predicates based on them.
 It could also be extended to credentials based on most general purpose structured data formats.
 
 # Conventions and Definitions
@@ -81,7 +84,7 @@ The names for record and fields differ across formats, as do their specific repr
 | YANG | | | |
 
 In this document, we are primarily interested in structured formats commonly used in credentials, specifically JSON Web Tokens (JWT), CBOR Web Tokens (CWT), and X.509 certificates (which use ASN.1) and their derivatives.
-In the context of credentials each of these specific fields is often described as a claim.
+In the context of credentials, each of these specific fields is often described as a claim.
 
 In JSON, a record is represented as an object by convention. The individual fields in the record are identified by the object name, which is always a quoted string.
 Very rarely a record is represented as an array of heterogeneous elements.
@@ -96,12 +99,12 @@ In X.509v3, a certificate contains an ASN.1 `SEQUENCE` of exactly 3 elements, th
 The certificate "payload" record is an ASN.1 `SEQUENCE` of 6 mandatory elements (certificate serial number, signature algorithm, issuer, validity, subject, and subject public key) and up to four optional elements (version, issuer unique ID, subject unique ID, and extensions).
 For the purpose of matching elements in the sequence we will assign an index to each field (starting from 0) as if all 10 elements were present.
 In this way, the overall structure is addressed by absolute position, while specific names, types, and extensions are identified using registered Object Identifiers (OIDs).
-The extensions field contains a further syntax with a potentially large and varied basket of data structures.
-Lists of items are represented as an ASN.1 `SEQUENCE OF` type, which if always of a single basic or composite type.
+The X.509 certificate extensions field contains a further syntax with a potentially large and varied basket of data structures.
+Lists of items are represented as an ASN.1 `SEQUENCE OF` type, which is always of a single basic or composite type.
 A composite type can contain a `CHOICE` of multiple subtypes.
 
 Records and lists in JSON, CBOR, and ASN.1 can be nested, sometimes deeply.
-For example, the X.509 subjectAltName field can contain a list of different types of names (DNS, URI, email, etc.) that all represent the subject.
+For example, the X.509 `subjectAltName` extension can contain a list of different types of names (DNS, URI, email, etc.) that all represent the subject.
 In JWT or CWT credentials, an address claim might consist of several component claims (ex: country or postal code); a language claim might consist of a list of languages; or a groups claim might contain nested claims only relevant to that specific group.
 
 It is common to have a list of specific permission that have been granted in one context but not another.
@@ -113,23 +116,23 @@ The following requirements were considered necessary to have a successful creden
 
 1. The mechanism can represent the difference between no match, and a match with a null or undefined value.
 
-2. The mechanism can find values in JSON objects and CBOR maps by the object name or key name.
+2. The mechanism can find a value in a JSON object or CBOR map by the object name or key name.
 
-3. The mechanism can find elements in ASN.1 by OID in a 2-element `SEQUENCE`.
+3. The mechanism can find an element in ASN.1 by its OID in a `SET` containing a two-element `SEQUENCE`.
 
-4. The mechanism can find elements in lists or arrays by their position.
+4. The mechanism can find an element in a list, array, or `SEQUENCE OF` by its position.
 
-5. The mechanism can find elements in an ASN.1 `SEQUENCE` that has any combination of its optional elements.
+5. The mechanism can find an element in an ASN.1 `SEQUENCE` that has any combination of its optional elements.
 
 6. The mechanism can find a single element in an list or array where one of the list/array elements contains a single "identifying" field somewhere in the array value.
 
-7. The mechanism can find elements in array elements that require identification by multiple matching claim pointers (**Maybe**).
+7. The mechanism can find an element among array elements that requires identification by multiple claim matchers joined with boolean logical ANDs (**Maybe**).
 
-8. The mechanism can find numerical values matching simple numeric predicates, such as greater than, or less than or equal to.
+8. The mechanism can find a numerical value matching simple numeric predicates, such as greater than, or less than or equal to a target value.
 
-9. The mechanism can find values matching well-defined parts of URIs and email addresses.
+9. The mechanism can match a target value to a well-defined part of a URI and email address claim.
 
-10. The mechanism can find values matching arbitrary substrings (**Maybe**).
+10. The mechanism can compare a target value to an arbitrary substring of a value identified by a claim pointer (**Maybe**).
 
 The following requirements were considered and rejected as out of scope.
 
@@ -144,10 +147,10 @@ The following requirements were considered and rejected as out of scope.
 
 # Matching claims
 
-In this section we introduce a method of matching claims in credentials that we describe here as Claim Pointers.
-A claim pointer follows the hierarchy of a credential from its root to a specific claim, through a sequence of specifiers per level. Each level is described using a `ClaimPointerUnit` object.
+In this section we introduce a method of matching claims in credentials that we describe here as Claim Pointers (which find a particular value), and Claim Matchers (which compare a value from a Claim Pointer to a specific value).
+A claim pointer follows the hierarchy of a credential from its root to a specific claim, through a sequence of specifiers per level. Each level is described using a `ClaimPointerItem` object.
 
-For the purposes of this section, a level of hierarchy in JSON is the value of any object, or an element of an array. In CBOR a level of hierarchy is the value of any map key, an element of an array, or the contents of a tag. In ASN.1 a level of hierarchy is an element of either a `SEQUENCE` or `SEQUENCE OF`.
+For the purposes of this section, a level of hierarchy in JSON is the value of any object, or an element of an array. In CBOR a level of hierarchy is the value of any map key, an element of an array, or the contents of a tag. In ASN.1 a level of hierarchy is generally an element of either a `SEQUENCE` or `SEQUENCE OF`.
 
 For explanatory purposes, we will provide an example JWT payload here to demonstrate some of the claim matching options. Additional examples will be introduced as needed.
 
@@ -175,18 +178,18 @@ For explanatory purposes, we will provide an example JWT payload here to demonst
 ~~~
 
 
-## Matching Map Keys, Object Names, and
+## Matching Map Keys, Object Names, and OIDs
 
-The value of an object in JSON or the value of a map in CBOR is accessed by its JSON name or CBOR map key, using the `map_key` pointer unit type.
-For JSON the `opaque_key` to be compared with the key is a double-quoted JSON string that matches the object name.
+The value of an object in JSON or the value of a map in CBOR is accessed by its JSON name or CBOR map key, using the `via_key` pointer item type.
+For JSON the `key` to be compared with the key is a double-quoted JSON string that matches the object name.
 
-For CBOR the `opaque_key` is the ordinary encoding {{!I-D.ietf-cbor-serialization}} that matches the map key.
-For example the CBOR map keys of 1 (unsigned integer), -1 (negative integer), '1' (byte string), "1" (text string), 1(0) (a timestamp at the start of the UNIX epoch), and 1.0 (float) match the `opaque_key`s of 0x01, 0x20, 0x41 0x31, 0x61 0x31, 0xC1 0x00, and 0xF9 0x3C 0x00 respectively.
+For CBOR the `key` is the ordinary encoding {{!I-D.ietf-cbor-serialization}} that matches the map key.
+For example the CBOR map keys of 1 (unsigned integer), -1 (negative integer), '1' (byte string), "1" (text string), 1(0) (a timestamp at the start of the UNIX epoch), and 1.0 (float) match the `key`s of 0x01, 0x20, 0x41 0x31, 0x61 0x31, 0xC1 0x00, and 0xF9 0x3C 0x00 respectively.
 
-In X.509, a common pattern is to have a `SEQUENCE` of 2 elements consisting of an OID and data element (its "value").
-The data element of such a 2 element `SEQUENCE` matches when its `opaque_key` is equal to the DER representation of its OID (excluding the OID type and length).
+In X.509, a common pattern is to have a single element `SET` of a `SEQUENCE` of two elements consisting of an OID and data element (its "value").
+The data element of such a 2 element `SEQUENCE` matches when its `key` is equal to the DER representation of its OID (excluding the OID type and length).
 
-This pointer unit points to ("returns") the value corresponding to the object name, map key, or element in the `SEQUENCE`.
+This pointer item points to ("returns") the value corresponding to the object name, map key, or element in the `SEQUENCE`.
 
 When evaluating the JWT payload above, the following claim pointer points at the value `true`, since that is the value of the `known_entity` claim.
 
@@ -202,15 +205,15 @@ claim_pointer[0].opaque_key = "known_entity";
 
 
 /* This feels like nicer names to me */
-pointer_unit[0].unit_type = via_key;
-pointer_unit[0].key.type = string;
-pointer_unit[0].key.value = "known_entity";
+pointer_item[0].unit_match = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "known_entity";
 ~~~
 
 
 ## Matching Lists and Sequences by Absolute Position
 
-The value of an element in an absolute position in a list is accessed using the `array_position` pointer unit type.
+The value of an element in an absolute position in a list is accessed using the `array_position` pointer item type.
 The `index` value corresponds to the position counting from 0.
 
 The claim pointer below using the example JSON document above would point at the value `true` as well, the 3rd element of the `service_flags` array.
@@ -243,12 +246,12 @@ As previously mentioned, the elements of an X.509 `SEQUENCE` with optional eleme
 
 ## Matching an Element in a List by an Identifier in the List
 
-The `array_search` claim pointer unit type, can search an array of an ASN.1  `SEQUNCE OF` for the first entry which matched the nested claim pointer in `nested_claim_pointer`.
+The `array_search` claim pointer item type, can search a JSON or CBOR array, or an ASN.1  `SEQUNCE OF`, for the first entry which matched the nested claim matchers in `nested_claim_pointer`.
 
 The claim pointer below begins by pointing at the value of the entire `nodes` array.
 Then, starting from the `nodes` array, its nested claim pointer points at the value of the `processor` object and compares it to the string value "DCBA-10177".
 Finding a match, the top-level claim_pointer now points at the first element in the `nodes` array.
-Finally, the next claim pointer unit looks for a `domain` object in the first element of the `nodes` array.
+Finally, the next claim pointer item looks for a `domain` object in the first element of the `nodes` array.
 The claim pointer now points at the value "smart.example".
 
 ~~~
@@ -267,7 +270,7 @@ claim_pointer = [
         ]    /* find an element with a `processor` object */
       ],
       value_semantics = string,  /* of type string         */
-      match_on = utf8_ci,        /* UTF-8 case insensitive */
+      match_as = utf8_ci,        /* UTF-8 case insensitive */
       test_value = "DCBA-10177"  /* matching this value    */
     }]
   ], /* pointer is at first element of the nodes array */
@@ -297,7 +300,7 @@ claim_pointer = [
         ]    /* find an element with a `domain` object */
       ],
       value_semantics = domain,    /* of type domain         */
-      match_on = domain_name,      /* match a valid domain   */
+      match_as = domain_name,      /* match a valid domain   */
       test_value = "smart.example" /* with this value        */
     }]
   ], /* pointer is at first element of the nodes array */
@@ -308,7 +311,7 @@ claim_pointer = [
 ]
 ~~~
 
-Finally, imagine that the value of the `domain` field was instead "xn--ingnieux-d1a.example", the `match_on` type was "punycode" and the `test_value` was "ingénieux.example".
+Finally, imagine that the value of the `domain` field was instead "xn--ingnieux-d1a.example", the `match_as` type was "punycode" and the `test_value` was "ingénieux.example".
 This would also point to the same value ("DCBA-10177") since the punycode representation of the Internationalized Domain Name (IDN) or "punycode" representation of "ingénieux.example" is "xn--ingnieux-d1a.example".
 
 ## Matching multiple claim pointers
@@ -331,7 +334,7 @@ claim_pointer = [
           ]    /* find an element with a `domain` object */
         ],
         value_semantics = domain,    /* of type domain         */
-        match_on = domain_name,      /* match a valid domain   */
+        match_as = domain_name,      /* match a valid domain   */
         test_value = "smart.example" /* with this value        */
       },
       {
@@ -346,7 +349,7 @@ claim_pointer = [
           ]
         ],
         value_semantics = string,
-        match_on = utf8ci,
+        match_as = utf8ci,
         test_value = "us"
       }
     ] /* first element with both country = us           */
@@ -357,6 +360,29 @@ claim_pointer = [
     opaque_key = "processor"
   ]
 ]
+
+pointer_item[0].unit_match = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "nodes";
+pointer_item[1].unit_match = via_array_search;
+pointer_item[1].claim_match[0].pointer_item[0].unit_match = via_key;
+pointer_item[1].claim_match[0].pointer_item[0].key.type = string;
+pointer_item[1].claim_match[0].pointer_item[0].key.value = "domain"
+pointer_item[1].claim_match[0].semantics = domain
+pointer_item[1].claim_match[0].match = domain
+pointer_item[1].claim_match[0].value = "smart.example"
+pointer_item[1].claim_match[1].pointer_item[0].unit_match = via_key;
+pointer_item[1].claim_match[1].pointer_item[0].key.type = string;
+pointer_item[1].claim_match[1].pointer_item[0].key.value = "origin"
+pointer_item[1].claim_match[1].pointer_item[1].unit_match = via_key;
+pointer_item[1].claim_match[1].pointer_item[1].key.type = string;
+pointer_item[1].claim_match[1].pointer_item[1].key.value = "country";
+pointer_item[1].claim_match[1].semantics = string;
+pointer_item[1].claim_match[1].match = utf8_ci;
+pointer_item[1].claim_match[1].value = "us";
+pointer_item[2].unit_match = via_key;
+pointer_item[2].key.type = string;
+pointer_item[2].key.value = "processor";
 ~~~
 
 
@@ -366,7 +392,7 @@ claim_pointer = [
   test_value = "eur_per_hour"
 
 value_semantics = number,
-match_on = number,
+match_as = number,
 operation = greater_or_equal,
 test_value = 200.0
 ~~~
@@ -377,7 +403,7 @@ test_value = 200.0
 
 ~~~
 value_semantics = uri,
-match_on = hostpart,
+match_as = hostpart,
 test_value = "example.com"
 ~~~
 
@@ -387,7 +413,7 @@ mimi://example.com/u/46133c9e-df4c-4c88-91d2-00a527bdd0f7
 
 ~~~
 value_semantics = uri,
-match_on = uripath,
+match_as = uripath,
 operation = substring,
   start = 3,
   length = 36
@@ -397,7 +423,7 @@ test_value = "46133c9e-df4c-4c88-91d2-00a527bdd0f7"
 # some scraps here
 
 
-A ClaimPointerUnit can consist of a handful of types
+A ClaimPointerItem can consist of a handful of types
 
 `map_key`
 
@@ -461,7 +487,7 @@ claim_pointer = [
     opaque_key = "known_entity"
   ]
 ]
-match_on = bool,
+match_as = bool,
 opaque_value = true
 MATCH
 
@@ -472,7 +498,7 @@ claim_pointer = [
   ]
 ]
 /* value is null */
-match_on = bool,
+match_as = bool,
 opaque_value = true
 NO MATCH
 
@@ -483,7 +509,7 @@ claim_pointer = [
   ]
 ]
 /* value is null (there is no array or has fewer elements) */
-match_on = utf8_ci,
+match_as = utf8_ci,
 opaque_value = "us"
 NO MATCH
 
@@ -499,7 +525,7 @@ claim_pointer = [
   ]
 ]
 /* value is [ true ] (value of 3rd element in array) */
-match_on = bool,
+match_as = bool,
 opaque_value = true
 MATCH
 
@@ -516,7 +542,7 @@ claim_pointer = [
         opaque_value = "processor"
       ]
     ],
-    match_on = string,
+    match_as = string,
     test_value = "DCBA-10177"
     MATCH
   ], /* pointer is at first element of the nodes array */
@@ -526,7 +552,7 @@ claim_pointer = [
   ]
 ]
 /* value is [ "smart.example" ] */
-match_on = domain
+match_as = domain
 opaque_value = "smart.example"
 MATCH
 ~~~
@@ -535,7 +561,7 @@ MATCH
 
 Imagine the match is on an IDN domain and the value of the `domain` object was "xn--ingnieux-d1a.example".
 
-match_on = punycode
+match_as = punycode
 test_value = "ingénieux.example"
 
 
@@ -557,7 +583,7 @@ claim_pointer = [
         test_value = "country"
       ] /* value of first element is "us" */
     ],
-    match_on = string,
+    match_as = string,
     test_value = "us"
     MATCH
   ], /* pointer is at first element of the nodes array */
@@ -567,7 +593,7 @@ claim_pointer = [
   ]
 ]
 /* value is [ "smart.example" ] */
-match_on = domain
+match_as = domain
 opaque_value = "smart.example"
 MATCH
 
@@ -598,59 +624,60 @@ enum {
 } ClaimFamily;
 
 enum {
-    number,
-    int,
-    float,
-    bool,
-    date,
-    bytes (0),
-    string (1),
-    domain (2),
-    uri (3),
-    https_uri,
-    mimi_uri,
-    email (4),
+    null (0),
+    number (1),
+    int (2),
+    float (3),
+    bool (4),
+    date (5),
+    bytes (6),
+    string (7),
+    domain (8),
+    uri (9),
+    https_uri (10),
+    mimi_uri (11),
+    email (12),
     (255)
 } ClaimSemantics;
 
 enum {
-    exists,
-    number,
-    int,
-    uint,
-    float,
-    finite_float,
-    bool,
-    secs_since_epoch,
-    iso8601,
-    bytes (0),
-    hex,
-    base64,
-    base64url,
-    der,
-    pem,
-    ipv4,
-    ipv6,
-    deterministic_cbor,
-    utf8 (1),
-    utf8_ci ,
-    nfc,
-    nfd,
-    canonical_json,
-    domain (2),
-    punycode,
-    email_address,
-    generic_uri,
-    https_uri,
-    userpart (6),
-    hostpart (7),
-    uri_path (8),
-    mimi_uri,
-    user_id (3),
-    device_id (4),
-    room_id (5),
+    exists (0),
+    number (1),
+    int (2),
+    uint (3),
+    float (4),
+    finite_float (5),
+    bool (6),
+    secs_since_epoch (7),
+    iso8601 (8),
+    bytes (9),
+    hex (10),
+    base64 (11),
+    base64url (12),
+    der (13),
+    pem (14),
+    ipv4 (15),
+    ipv6 (16),
+    deterministic_cbor (17),
+    utf8 (18),
+    utf8_ci (19),
+    nfc (20),
+    nfd (21),
+    canonical_json (22),
+    domain (23),
+    punycode (24),
+    email_address (25),
+    generic_uri (26),
+    https_uri (27),
+    userpart (28),
+    hostpart (29),
+    uri_path (30),
+    mimi_uri (31),
+    user_id (32),
+    device_id (33),
+    room_id (34),
     (255)
-} MatchOn;
+} MatchAs;
 
 enum {
     member_name (0),
@@ -659,7 +686,7 @@ enum {
     tagged_value (3), /* CBOR only */
     bstr_encoded (4), /* CBOR only */
     (255)
-} ClaimUnitType;
+} ClaimItemType;
 
 
 
@@ -694,13 +721,13 @@ struct {
         case array_index:
             uint index;
         case array_search:
-            ClaimMatch nested_matches<V>;
+            ClaimMatcher nested_matches<V>;
         case tagged_value:
             uint tag;
         case bstr_encoded:
             struct {};
     }
-} ClaimPointerUnit;
+} ClaimPointerItem;
 
 enum {
     equal (0),
@@ -733,12 +760,12 @@ struct {
 } Operation;
 
 struct {
-    ClaimPointerUnit claim_pointer<V>;
+    ClaimPointerItem claim_pointer<V>;
     ClaimSemantics claim_semantics;
-    MatchOn match_on;
+    MatchAs match_as;
     optional<Operation> operation;
-    opaque matching_value<V>;
-} ClaimMatch
+    opaque matching_value<V>;   /* maybe test_value */
+} ClaimMatcher;
 
 struct {
     ClaimFamily claim_family;
@@ -814,11 +841,51 @@ struct {
             CwtClaimRoot claim_root;
     }
     ClaimSemantics claim_semantics;
-    MatchOn match_on;
+    MatchAs match_as;
     bool match_any_in_list;
     opaque target_value<V>;
 } Claim;
 ~~~
+
+# Types of comparisons
+
+`exists`
+number,
+int,
+uint,
+float,
+finite_float,
+bool,
+`secs_since_epoch` convert into a Javascript date (seconds since the epoch )
+    iso8601,
+    bytes (0),
+    hex,
+    base64,
+    base64url,
+    der,
+    pem,
+    ipv4,
+    ipv6,
+    deterministic_cbor,
+    utf8 (1),
+    utf8_ci ,
+    nfc,
+    nfd,
+    canonical_json,
+    domain (2),
+    punycode,
+    email_address,
+    generic_uri,
+    https_uri,
+    userpart (6),
+    hostpart (7),
+    uri_path (8),
+    mimi_uri,
+    user_id (3),
+    device_id (4),
+    room_id (5),
+    (255)
+
 
 
 
@@ -920,13 +987,13 @@ claim_pointer = [
       ]
     ],
     semantics = uri,
-    match_on = domain / userpart / user_id
+    match_as = domain / userpart / user_id
     test_value = "provider.example"
     MATCH
   ] /* value is [ ["URI", "https://provider.example/path"] ] */
 ],
 semantics = uri,
-match_on = exists,
+match_as = exists,
 test_value = true
 MATCH
 
