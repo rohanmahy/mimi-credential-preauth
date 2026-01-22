@@ -193,16 +193,8 @@ This pointer item points to ("returns") the value corresponding to the object na
 
 When evaluating the JWT payload above, the following claim pointer points at the value `true`, since that is the value of the `known_entity` claim.
 
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "known_entity"
-  ]
-]
-
-/* This feels like nicer names to me */
-pointer_item[0].unit_match = via_key;
+~~~ tls
+pointer_item[0].item_type = via_key;
 pointer_item[0].key.type = string;
 pointer_item[0].key.value = "known_entity";
 ~~~
@@ -215,25 +207,15 @@ The `index` value corresponds to the position counting from 0.
 
 The claim pointer below using the example JSON document above would point at the value `true` as well, the 3rd element of the `service_flags` array.
 
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "service_flags"
-  ],  /* points to entire array */
-  [
-    token_type = array_position,
-    index = 2
-  ]
-]
+~~~ tls
+/* pointer_item[0] points to entire array */
+pointer_item[0].item_type = via_key; /* 0 */
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "service_flags";
 
-/* claim_pointer[0] points to entire array */
-claim_pointer[0].unit_type = map_key; /* 0 */
-claim_pointer[0].opaque_key = "service_flags";
-
-/* claim_pointer[1] points to 3rd element (true) */
-claim_pointer[1].unit_type = array_position; /* 1 */
-claim_pointer[1].index = 2;
+/* pointer_item[1] points to 3rd element (true) */
+pointer_item[1].item_type = array_position; /* 1 */
+pointer_item[1].index = 2;
 ~~~
 
 If there is no array, or the array does not have an element at the requested position, the claim pointer does not point at anything.
@@ -251,133 +233,103 @@ Finding a match, the top-level claim_pointer now points at the first element in 
 Finally, the next claim pointer item looks for a `domain` object in the first element of the `nodes` array.
 The claim pointer now points at the value "smart.example".
 
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "nodes"
-  ], /* points to entire array of nodes elements */
-  [
-    token_type = array_search,
-    nested_claim_pointer = [{
-      claim_pointer = [
-        [
-          token_type = map_key,
-          opaque_key = "processor"
-        ]    /* find an element with a `processor` object */
-      ],
-      value_semantics = string,  /* of type string         */
-      match_as = utf8_ci,        /* UTF-8 case insensitive */
-      test_value = "DCBA-10177"  /* matching this value    */
-    }]
-  ], /* pointer is at first element of the nodes array */
-  [
-    token_type = map_key,
-    opaque_key = "domain"
-  ]
-]
+~~~ tls
+pointer_item[0].item_type = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "nodes";
+/* pointer_item[0] points to entire array of nodes elements */
+
+/* pointer_item[1] searches for an item in the nodes array that has */
+/*  "processor" object matching DCBA-10177 using a case insensitive */
+/*  comparison                                                      */
+pointer_item[1].item_type = via_array_search;
+pointer_item[1].claim_match[0].pointer_item[0].item_type = via_key;
+pointer_item[1].claim_match[0].pointer_item[0].key.type = string;
+pointer_item[1].claim_match[0].pointer_item[0].key.value = "processor";
+pointer_item[1].claim_match[0].semantics = string;
+pointer_item[1].claim_match[0].match_as = utf8_ci;
+pointer_item[1].claim_match[0].test_value = "Dcba-10177";
+
+/* pointer_item[1] ends pointing to 1st element in the node array */
+pointer_item[2].item_type = via_key;
+pointer_item[2].key.type = string;
+pointer_item[2].key.value = "domain";
+/* value of pointer_item[2] is "smart.example" */
 ~~~
 
 Instead imagine searching for the value of `processor` in the first element that matches the `domain` "smart.example".
 We would use the following claim_pointer instead, which would point to the value "DCBA-10177" in the first element's `processor` object.
 
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "nodes"
-  ], /* points to entire array of nodes elements */
-  [
-    token_type = array_search,
-    nested_claim_pointers = [{
-      claim_pointer = [
-        [
-          token_type = map_key,
-          opaque_key = "domain"
-        ]    /* find an element with a `domain` object */
-      ],
-      value_semantics = domain,    /* of type domain         */
-      match_as = domain_name,      /* match a valid domain   */
-      test_value = "smart.example" /* with this value        */
-    }]
-  ], /* pointer is at first element of the nodes array */
-  [
-    token_type = map_key,
-    opaque_key = "processor"
-  ]
-]
+~~~ tls
+pointer_item[0].item_type = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "nodes";
+/* pointer_item[0] points to entire array of nodes elements */
+
+/* pointer_item[1] searches for an item in the nodes array that has */
+/*  "domain" object matching "smart.example" using a domain name    */
+/*  comparison                                                      */
+pointer_item[1].item_type = via_array_search;
+pointer_item[1].claim_match[0].pointer_item[0].item_type = via_key;
+pointer_item[1].claim_match[0].pointer_item[0].key.type = string;
+pointer_item[1].claim_match[0].pointer_item[0].key.value = "domain";
+pointer_item[1].claim_match[0].semantics = domain;
+pointer_item[1].claim_match[0].match_as = domain;
+pointer_item[1].claim_match[0].test_value = "smart.example";
+
+/* pointer_item[1] ends pointing to 1st element in the node array */
+pointer_item[2].item_type = via_key;
+pointer_item[2].key.type = string;
+pointer_item[2].key.value = "processor";
+/* value of pointer_item[2] is "DCBA-10177" */
 ~~~
 
 Finally, imagine that the value of the `domain` field was instead "xn--ingnieux-d1a.example", the `match_as` type was "punycode" and the `test_value` was "ingénieux.example".
 This would also point to the same value ("DCBA-10177") since the punycode representation of the Internationalized Domain Name (IDN) or "punycode" representation of "ingénieux.example" is "xn--ingnieux-d1a.example".
 
+Full explanation of comparison rules will be discussed in section {{types-of-comparisons}}.
+
+
 ## Matching multiple claim pointers
 
+If no single value in an array element is sufficient to uniquely identify the target element, an `array_search` can search multiple `claim_match` elements.
+While implementations may choose a variety of techniques to match multiple items, be aware that the claim matches need to be evaluated together.
+One way to do this would be to start with the first item in an array, try each `claim_match` with that item until one of them fails to find a match, stopping at the first item that matches every `claim_match`, or returning no match if none is found.
 
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "nodes"
-  ], /* points to entire array of nodes elements */
-  [
-    token_type = array_search,
-    nested_claim_pointers = [
-      {
-        claim_pointer = [
-          [
-            token_type = map_key,
-            opaque_key = "domain"
-          ]    /* find an element with a `domain` object */
-        ],
-        value_semantics = domain,    /* of type domain         */
-        match_as = domain_name,      /* match a valid domain   */
-        test_value = "smart.example" /* with this value        */
-      },
-      {
-        claim_pointer = [
-          [
-            token_type = map_key,
-            opaque_key = "origin"
-          ],
-          [
-            token_type = map_key,
-            opaque_key = "country"
-          ]
-        ],
-        value_semantics = string,
-        match_as = utf8ci,
-        test_value = "us"
-      }
-    ] /* first element with both country = us           */
-      /*                     AND domain = smart.example */
-  ], /* pointer is at first element of the nodes array */
-  [
-    token_type = map_key,
-    opaque_key = "processor"
-  ]
-]
+The following example presents the value of the processor object for the first element of the nodes item which matches both the domain "smart.example", and the origin country "us".
 
-pointer_item[0].unit_match = via_key;
+~~~ tls
+/* pointer_item[0] matches the entire array under the nodes object */
+pointer_item[0].item_type = via_key;
 pointer_item[0].key.type = string;
 pointer_item[0].key.value = "nodes";
-pointer_item[1].unit_match = via_array_search;
-pointer_item[1].claim_match[0].pointer_item[0].unit_match = via_key;
+
+/* pointer_item[1] is an array_search with two claim_matches */
+/* it will point at the entire array element satisfying both *
+pointer_item[1].item_type = via_array_search;
+
+/* first claim_match matches "smart.example" in the domain object */
+pointer_item[1].claim_match[0].pointer_item[0].item_type = via_key;
 pointer_item[1].claim_match[0].pointer_item[0].key.type = string;
 pointer_item[1].claim_match[0].pointer_item[0].key.value = "domain"
 pointer_item[1].claim_match[0].semantics = domain
-pointer_item[1].claim_match[0].match = domain
+pointer_item[1].claim_match[0].match_as = domain
 pointer_item[1].claim_match[0].value = "smart.example"
-pointer_item[1].claim_match[1].pointer_item[0].unit_match = via_key;
+
+/* second claim_match matches "us" in the country object in the */
+/*   origin object                                              */
+pointer_item[1].claim_match[1].pointer_item[0].item_type = via_key;
 pointer_item[1].claim_match[1].pointer_item[0].key.type = string;
 pointer_item[1].claim_match[1].pointer_item[0].key.value = "origin"
-pointer_item[1].claim_match[1].pointer_item[1].unit_match = via_key;
+pointer_item[1].claim_match[1].pointer_item[1].item_type = via_key;
 pointer_item[1].claim_match[1].pointer_item[1].key.type = string;
 pointer_item[1].claim_match[1].pointer_item[1].key.value = "country";
 pointer_item[1].claim_match[1].semantics = string;
 pointer_item[1].claim_match[1].match = utf8_ci;
 pointer_item[1].claim_match[1].value = "us";
-pointer_item[2].unit_match = via_key;
+
+/* pointer_item[2] points to the value of the processor object */
+pointer_item[2].item_type = via_key;
 pointer_item[2].key.type = string;
 pointer_item[2].key.value = "processor";
 ~~~
@@ -385,23 +337,78 @@ pointer_item[2].key.value = "processor";
 
 ## Matching with Numerical Predicates
 
-~~~
-  test_value = "eur_per_hour"
+In this example we use the concept of predicates to find an element with a numerical value in designed ranges.
+In our example we are looking for an element of the nodes array with a `eur_per_hour` value greater than or equal to 200.
 
-value_semantics = number,
-match_as = number,
-operation = greater_or_equal,
-test_value = 200.0
 ~~~
+/* pointer_item[0] points to entire array of nodes elements */
+pointer_item[0].item_type = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "nodes";
 
+/* pointer_item[1] finds the first element with a `eur_per_hour`    */
+/*  floating point value greater than or equal to 200.00            */
+pointer_item[1].item_type = via_array_search;
+pointer_item[1].claim_match[0].pointer_item[0].item_type = via_key;
+pointer_item[1].claim_match[0].pointer_item[0].key.type = string;
+pointer_item[1].claim_match[0].pointer_item[0].key.value = "processor";
+pointer_item[1].claim_match[0].semantics = number;
+pointer_item[1].claim_match[0].match_as = finite_float;
+pointer_item[1].claim_match[0].operation = greater_than_or_equal;
+pointer_item[1].claim_match[0].test_value = 200.0
+
+/* pointer_item[1] ends pointing to 1st element in the node array */
+~~~
 
 
 ## Matching Parts of URIs and email addresses
 
+Standard URIs and email addresses have a complicated but predictable internal structure.
+It is often useful to compare a specific component of a URI or an email address to a specific value.
+
+In the example fragments below the first `claim_match` will match when the domain of the URI matches "example.com".
+The second matches when the email hostpart matches "example.com".
+The last one matches when a MIMI URI where the first item in the URI path matches "r" (room).
+
+~~~ json
+{
+    "room-uri": "mimi://example.com/r/clubhouse",
+    "email-checked": "alice@example.com"
+}
 ~~~
-value_semantics = uri,
-match_as = hostpart,
-test_value = "example.com"
+
+~~~ tls
+/* first example */
+pointer_item[0].item_type = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "room-uri";
+semantics = uri;
+match_as = domain;
+test_value = "example.com";
+
+/* second example */
+pointer_item[0].item_type = via_key;
+pointer_item[0].key.type = string;
+pointer_item[0].key.value = "email-checked";
+semantics = uri;
+match_as = hostpart;
+test_value = "example.com";
+
+/* third example */
+claim_match[0].pointer_item[0].item_type = via_key;
+claim_match[0].pointer_item[0].key.type = string;
+claim_match[0].pointer_item[0].key.value = "room-uri";
+claim_match[0].semantics = uri;
+claim_match[0].match_as = scheme;
+claim_match[0].test_value = "mimi";
+claim_match[1].pointer_item[0].item_type = via_key;
+claim_match[1].pointer_item[0].key.type = string;
+claim_match[1].pointer_item[0].key.value = "room-uri";
+claim_match[1].semantics = uri;
+claim_match[1].match_as = uri_path;
+claim_match[1].operation = path_slice;
+claim_match[1].path_index = 0
+claim_match[1].test_value = "r";
 ~~~
 
 ## Matching Arbitrary Substrings
@@ -416,197 +423,6 @@ operation = substring,
   length = 36
 test_value = "46133c9e-df4c-4c88-91d2-00a527bdd0f7"
 ~~~
-
-# some scraps here
-
-
-A ClaimPointerItem can consist of a handful of types
-
-`map_key`
-
-
-
-`array_index`
-
-`index` matches the 0-indexed element of the array
-
-
-`array_search`
-
-matches the first element in the searched array which matches all of the `nested_claim_pointers`
-
-it returns the value of the found array element
-
-
-for example
-
-
-`map_search`
-
-is less commonly used, but needed when accessing a map key that itself has a nested structure
-
-
-
-
-
-
-~~~ json
-{
-  "abc": "foo"
-  "def": [
-     "carrot",
-     "tomato",
-     2.5,
-     true
-  ],
-  "ghi": [
-    [
-    ],
-    [
-    ],
-    {
-      "roles": ["Employees", "Boston", "PR", "Manager"],
-      "start_date": "01-Apr-2021"
-    }
-  ],
-  "jkl": {
-     "AAA": "all \"a\"'s",
-     "BBB": "all b's"
-  },
-  "xyz": 1.0
-}
-~~~
-
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "known_entity"
-  ]
-]
-match_as = bool,
-opaque_value = true
-MATCH
-
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "some_nonexistent_key"
-  ]
-]
-/* value is null */
-match_as = bool,
-opaque_value = true
-NO MATCH
-
-claim_pointer = [
-  [
-    token_type = array_position,
-    index = 3
-  ]
-]
-/* value is null (there is no array or has fewer elements) */
-match_as = utf8_ci,
-opaque_value = "us"
-NO MATCH
-
-
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "service_flags"
-  ],  /* points to entire array */
-  [
-    token_type = array_position,
-    index = 2
-  ]
-]
-/* value is [ true ] (value of 3rd element in array) */
-match_as = bool,
-opaque_value = true
-MATCH
-
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "nodes"
-  ], /* points to entire array of nodes elements */
-  [
-    token_type = array_search,
-    nested_claim_pointer = [
-      [
-        token_type = map_key,
-        opaque_value = "processor"
-      ]
-    ],
-    match_as = string,
-    test_value = "DCBA-10177"
-    MATCH
-  ], /* pointer is at first element of the nodes array */
-  [
-    token_type = map_key,
-    opaque_key = "domain"
-  ]
-]
-/* value is [ "smart.example" ] */
-match_as = domain
-opaque_value = "smart.example"
-MATCH
-~~~
-
-
-
-Imagine the match is on an IDN domain and the value of the `domain` object was "xn--ingnieux-d1a.example".
-
-match_as = punycode
-test_value = "ingénieux.example"
-
-
-~~~
-claim_pointer = [
-  [
-    token_type = map_key,
-    opaque_key = "nodes"
-  ], /* points to entire array of nodes elements */
-  [
-    token_type = array_search,
-    nested_claim_pointer = [
-      [
-        token_type = map_key,
-        opaque_value = "origin"
-      ], /* value of first element is origin map */
-      [
-        token_type = map_key,
-        test_value = "country"
-      ] /* value of first element is "us" */
-    ],
-    match_as = string,
-    test_value = "us"
-    MATCH
-  ], /* pointer is at first element of the nodes array */
-  [
-    token_type = map_key,
-    opaque_key = "domain"
-  ]
-]
-/* value is [ "smart.example" ] */
-match_as = domain
-opaque_value = "smart.example"
-MATCH
-
-
-~~~
-NEXT example match both processor and domain in array_search
-claim_pointer =
-
-
-NEXT example match predicate ≥ 200.00 eur per hour
-does this require ANDs to get ranges?
-
-NEXT example well-defined parts of URIs and email
-
-
-NEXT example substrings
 
 
 # Match Syntax Definition
@@ -691,8 +507,8 @@ enum {
 
 
 struct {
-    JwtTokenType token_type;
-    select (token_type) {
+    JwtItemType item_type;
+    select (item_type) {
         case member_name:
             opaque name<V>;
         case array_index:
@@ -712,11 +528,11 @@ enum {
     bstr_encoded (4),
     any (5),
     (255)
-} TokenType;
+} ItemType;
 
 struct {
-    TokenType token_type;
-    select (token_type) {
+    ItemType item_type;
+    select (item_type) {
         case map_key:
             opaque opaque_key<V>;
         case array_position:
@@ -905,6 +721,9 @@ struct {
 
 # Types of comparisons
 
+TODO
+
+~~~
 `exists`
 number,
 int,
@@ -941,7 +760,7 @@ bool,
     device_id (4),
     room_id (5),
     (255)
-
+~~~
 
 
 
@@ -978,7 +797,7 @@ bool,
 ### CBOR example with tagged value accessed directly as opaque_value
 
 ~~~ tls
-pointer_item[0].unit_match = via_key;
+pointer_item[0].item_type = via_key;
 pointer_item[0].key.type = uint;
 pointer_item[0].key.value = 502;
 ~~~
@@ -989,10 +808,10 @@ pointer_item[0].key.value = 502;
 ### CBOR example parsing into tagged value
 
 ~~~ tls
-pointer_item[0].unit_match = via_key;
+pointer_item[0].item_type = via_key;
 pointer_item[0].key.type = uint;
 pointer_item[0].key.value = 502;
-pointer_item[1].unit_match = tagged_value;
+pointer_item[1].item_type = tagged_value;
 pointer_item[1].tag;
 ~~~
 
@@ -1047,13 +866,13 @@ SEQUENCE (1 elem)
 
 
 ~~~ tls
-pointer_item[0].unit_match = via_key;
+pointer_item[0].item_type = via_key;
 pointer_item[0].key.type = oid;
 pointer_item[0].key.value = 0x551d11; /* 2.5.29.17 = subjectAltName */
-pointer_item[1].unit_match = array_search;
-pointer_item[1].nested_matches[0].claim_pointer[0].unit_match = any;
-pointer_item[1].nested_matches[0].claim_pointer[1].unit_match = array_position;
-pointer_item[1].nested_matches[0].claim_pointer[1].index = 6; /* URI type */
+pointer_item[1].item_type = array_search;
+pointer_item[1].nested_matches[0].pointer_item[0].item_type = any;
+pointer_item[1].nested_matches[0].pointer_item[1].item_type = array_position;
+pointer_item[1].nested_matches[0].pointer_item[1].index = 6; /* URI type */
 pointer_item[1].claim_semantics = uri;
 pointer_item[1].match_as = host_part;
 pointer_item[1].operation = substring;
@@ -1182,8 +1001,6 @@ Changing Preauthorized user definitions is sufficiently disruptive, that an upda
 Because the Preauthorized users component usually authorizes non-members, it is also a natural choice for providing concrete authorization for policy enforcing systems incorporated into or which run in coordination with the MIMI Hub provider or specific MLS Distribution Services. For example, a preauthorized role could allow the Hub to remove participants and to ban them, but not to add any users or devices. This unifies the authorization model for members and non-members.
 
 
-
-
 # Security Considerations
 
 TODO Security
@@ -1195,6 +1012,36 @@ This document has no IANA actions.
 
 
 --- back
+
+# More example documents to match against
+
+~~~ json
+{
+  "abc": "foo"
+  "def": [
+     "carrot",
+     "tomato",
+     2.5,
+     true
+  ],
+  "ghi": [
+    [
+    ],
+    [
+    ],
+    {
+      "roles": ["Employees", "Boston", "PR", "Manager"],
+      "start_date": "01-Apr-2021"
+    }
+  ],
+  "jkl": {
+     "AAA": "all \"a\"'s",
+     "BBB": "all b's"
+  },
+  "xyz": 1.0
+}
+~~~
+
 
 # Acknowledgments
 {:numbered="false"}
