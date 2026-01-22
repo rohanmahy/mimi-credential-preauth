@@ -200,9 +200,6 @@ claim_pointer = [
     opaque_key = "known_entity"
   ]
 ]
-claim_pointer[0].unit_type = map_key; /* 0 */
-claim_pointer[0].opaque_key = "known_entity";
-
 
 /* This feels like nicer names to me */
 pointer_item[0].unit_match = via_key;
@@ -676,6 +673,8 @@ enum {
     user_id (32),
     device_id (33),
     room_id (34),
+    length_bytes (35),
+    length_chats (36),
     (255)
 } MatchAs;
 
@@ -707,9 +706,11 @@ struct {
 
 enum {
     map_key (0),
-    array_index (1),
-    tagged_value (2),
-    bstr_encoded (3),
+    array_position (1),
+    array_search (2),
+    tagged_value (3),
+    bstr_encoded (4),
+    any (5),
     (255)
 } TokenType;
 
@@ -718,7 +719,7 @@ struct {
     select (token_type) {
         case map_key:
             opaque opaque_key<V>;
-        case array_index:
+        case array_position:
             uint index;
         case array_search:
             ClaimMatcher nested_matches<V>;
@@ -726,7 +727,9 @@ struct {
             uint tag;
         case bstr_encoded:
             struct {};
-    }
+        case any:
+            struct {};
+    };
 } ClaimPointerItem;
 
 enum {
@@ -735,25 +738,30 @@ enum {
     less_than_or_equal (2),
     greater_than (3),
     greater_than_or_equal (4),
-    len_bytes,
-    len_chars,
-    contains,
-    starts_with,
-    ends_with,
-    substring,
-    path_slice,
+    contains (7),
+    starts_with (8),
+    ends_with (9),
+    substring (10),
+    path_slice (11),
 } OperationType;
 
 struct {
   OperationType operation_type;
   select (operation_type) {
+    case equal:
+    case less_than:
+    case less_than_or_equal:
+    case greater_than:
+    case greater_than_or_equal:
+    case contains:
+        struct {};
     case starts_with:
         optional<uint> length;
     case ends_width:
         optional<uint> length;
     case substring:
         uint start_position;
-        uint length;
+        optional<uint> length;
     case path_slice:
         uint path_index;
   };
@@ -764,55 +772,87 @@ struct {
     ClaimSemantics claim_semantics;
     MatchAs match_as;
     optional<Operation> operation;
-    opaque matching_value<V>;   /* maybe test_value */
+    opaque test_value<V>;
 } ClaimMatcher;
 
 struct {
     ClaimFamily claim_family;
     select (claim_family) {
         case json:
-            JsonType json_type;
-            select (json_type) {
-                case number:
-                    Double value;
-                case string:
-                case object:
-                case array:
-                    Bytes value;
-                case no_match:
-                case true:
-                case false:
-                case null:
-                    struct {};
-            }
+            String object_name;
         case cbor:
             Bytes cbor_encoding;
         case asn1:
+            Bytes der_encoded_oid;
     };
-} MapKey
+} MapKey;
 
-case no_match:
-    struct {};
-case uint:
-case nint:
-    uint64 value;
-case float
-    Double value;
-case array:
-case map:
-case text_string:
-case byte_string:
-    Bytes value;
-case tag:
-    uint64 tag;
-    Bytes value;
-case undefined:
-    select {};
-case simple:
-    uint8 value;
+struct {
+  bool claim_exists;
+  select (claim_exists) {
+    case false:
+      select {};
+    case true:
+      ClaimFamily claim_family;
+      select (claim_family) {
+        case json:
+          JsonType json_type;
+          select (json_type) {
+            case number:
+              Double value;
+            case string:
+            case object:
+            case array:
+              Bytes value;
+            case true:
+            case false:
+            case null:
+              struct {};
+          };
+        case cbor:
+          Bytes cbor_encoding;
+        case asn1:
+          /* we might need another option */
+          Bytes der_encoding;
+      };
+  };
+} FoundValue;
 
 
-enum JsonType {
+struct {
+    CborType type;
+    select (type) {
+        case no_match:
+            struct {};
+        case uint:
+        case nint:
+            uint64 value;
+        case float
+            Double value;
+        case array:
+            CborValue elements<V>;
+        case map:
+            CborKeyAndValue map_entries<V>;
+        case text_string:
+            Bytes value;
+        case byte_string:
+            Bytes value;
+        case tag:
+            uint64 tag;
+            CborValue value;
+        case undefined:
+            select {};
+        case simple:
+            uint8 value;
+    };
+} CborValue;
+
+struct {
+    CborValue key;
+    CborValue value;
+} CborKeyAndValue;
+
+enum {
     no_match (0),
     number (1),
     string (2),
@@ -822,9 +862,25 @@ enum JsonType {
     false (6),
     null (7)
     (255)
-}
+} JsonType;
 
-
+enum {
+    uint (0),
+    nint (1),
+    array (2),
+    map (3),
+    byte_string (4),
+    text_string (5),
+    tag (6),
+    simple (7),
+    true (8),
+    false (9),
+    null (10),
+    undefined (11),
+    float (12),
+    no_match (13),
+    (255)
+} CborType;
 
 struct {
     CwtToken claim_pointer<V>;
@@ -919,11 +975,30 @@ bool,
 }
 ~~~
 
-### CBOR example with tagged value access directly as opaque_value
+### CBOR example with tagged value accessed directly as opaque_value
+
+~~~ tls
+pointer_item[0].unit_match = via_key;
+pointer_item[0].key.type = uint;
+pointer_item[0].key.value = 502;
+~~~
+
+
+
 
 ### CBOR example parsing into tagged value
 
+~~~ tls
+pointer_item[0].unit_match = via_key;
+pointer_item[0].key.type = uint;
+pointer_item[0].key.value = 502;
+pointer_item[1].unit_match = tagged_value;
+pointer_item[1].tag;
+~~~
+
 ### CBOR example with custom simple values ?? - maybe not needed
+
+
 
 ## X.509 Examples
 
@@ -964,11 +1039,28 @@ SEQUENCE (1 elem)
 
 ### X.509 Matching one DNS item in issuerAltName
 
+
+
 ### X.509 matching one URI part of subjectAltName
 
 ### X.509 matching one URI part of subjectAltName with a domain substring
 
 
+~~~ tls
+pointer_item[0].unit_match = via_key;
+pointer_item[0].key.type = oid;
+pointer_item[0].key.value = 0x551d11; /* 2.5.29.17 = subjectAltName */
+pointer_item[1].unit_match = array_search;
+pointer_item[1].nested_matches[0].claim_pointer[0].unit_match = any;
+pointer_item[1].nested_matches[0].claim_pointer[1].unit_match = array_position;
+pointer_item[1].nested_matches[0].claim_pointer[1].index = 6; /* URI type */
+pointer_item[1].claim_semantics = uri;
+pointer_item[1].match_as = host_part;
+pointer_item[1].operation = substring;
+pointer_item[1].start_position = 0;
+pointer_item[1].length = 11;
+pointer_item[1].test_value = "example.org"
+~~~
 
 
 
