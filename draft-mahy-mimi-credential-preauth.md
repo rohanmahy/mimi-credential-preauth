@@ -42,7 +42,7 @@ informative:
 
 --- abstract
 
-This document describes a syntax called claim pointers that identify specific items in structured credentials, which often have nested levels of hierarchy;
+This document describes a Work-In-Progress syntax called claim pointers that identify specific items in structured credentials, which often have nested levels of hierarchy;
 and claim matchers that facilitate comparisons between items in credentials and a target value.
 It also describes a new version of the More Instant Messaging Interoperability (MIMI) preauthorization format using claim pointers and claim matchers.
 
@@ -52,7 +52,7 @@ It also describes a new version of the More Instant Messaging Interoperability (
 
 More Instant Messaging Interoperability (MIMI) room policy ({{!I-D.ietf-mimi-room-policy}}) defines a format that allows potential joiners that are not enumerated beforehand to be preauthorized based on properties found in their Messaging Layer Security (MLS) {{!RFC9420}} credentials.
 The current version of the preauthorization format in {{Section 4 of !I-D.ietf-mimi-room-policy}} is underspecified and was designed to work with individual claims in a JSON Web Token (JWT) {{!RFC7519}} or CBOR Web Token (CWT) {{!RFC8392}}.
-This document describes a syntax called claim pointers that can address claims nested inside JWT, CWT, and X.509 certificates {{!RFC5280}}, and provides richer matching rules called claim matchers, capable of matching sub parts of those claims and predicates based on them.
+This document describes a Work-In-Progress syntax called claim pointers that can address claims nested inside JWT, CWT, and X.509 certificates {{!RFC5280}}, and provides richer matching rules called claim matchers, capable of matching sub parts of those claims and predicates based on them.
 It could also be extended to credentials based on most general purpose structured data formats.
 
 # Conventions and Definitions
